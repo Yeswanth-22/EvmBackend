@@ -20,15 +20,6 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
 
-/**
- * FIXED SECURITY CONFIG BASED ON YOUR ORIGINAL CODE
- * Your uploaded config only allows localhost and blocks Vercel frontend: :contentReference[oaicite:0]{index=0}
- *
- * FIXES:
- * 1. Added Vercel frontend URL
- * 2. Changed allowCredentials(false) -> true
- * 3. Keeps your JWT + OAuth2 + Role security unchanged
- */
 @Configuration
 public class SecurityConfig {
 
@@ -37,7 +28,8 @@ public class SecurityConfig {
 
     public SecurityConfig(
             JwtAuthenticationFilter jwtAuthenticationFilter,
-            GoogleOAuth2SuccessHandler googleOAuth2SuccessHandler) {
+            GoogleOAuth2SuccessHandler googleOAuth2SuccessHandler
+    ) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.googleOAuth2SuccessHandler = googleOAuth2SuccessHandler;
     }
@@ -47,14 +39,17 @@ public class SecurityConfig {
 
         http
                 .csrf(csrf -> csrf.disable())
-                .cors(Customizer.withDefaults())
+
+                // USE ONLY THIS CORS CONFIG
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
 
                 .sessionManagement(session ->
-                        session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
+                        session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
+                )
 
                 .authorizeHttpRequests(auth -> auth
 
-                        // PRE-FLIGHT
+                        // PRE-FLIGHT REQUESTS
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                         // SWAGGER
@@ -64,7 +59,7 @@ public class SecurityConfig {
                                 "/v3/api-docs/**"
                         ).permitAll()
 
-                        // AUTH
+                        // PUBLIC AUTH ENDPOINTS
                         .requestMatchers(
                                 HttpMethod.POST,
                                 "/api/auth/login",
@@ -76,6 +71,7 @@ public class SecurityConfig {
                                 "/api/auth/refresh"
                         ).permitAll()
 
+                        // CURRENT USER
                         .requestMatchers(HttpMethod.GET, "/api/auth/me")
                         .authenticated()
 
@@ -118,35 +114,33 @@ public class SecurityConfig {
                         .requestMatchers("/api/incidents/**")
                         .hasAnyRole("ADMIN", "OBSERVER")
 
-                        // FRAUD
+                        // FRAUD REPORTS
                         .requestMatchers(HttpMethod.GET, "/api/fraud-reports")
                         .hasAnyRole("ADMIN", "CITIZEN", "OBSERVER")
 
-                        .requestMatchers(
-                                HttpMethod.POST,
-                                "/api/fraud-reports"
-                        ).hasAnyRole("ADMIN", "CITIZEN")
+                        .requestMatchers(HttpMethod.POST, "/api/fraud-reports")
+                        .hasAnyRole("ADMIN", "CITIZEN")
 
-                        .requestMatchers(
-                                HttpMethod.PUT,
-                                "/api/fraud-reports/**"
-                        ).hasAnyRole("ADMIN", "CITIZEN")
+                        .requestMatchers(HttpMethod.PUT, "/api/fraud-reports/**")
+                        .hasAnyRole("ADMIN", "CITIZEN")
 
-                        .requestMatchers(
-                                HttpMethod.DELETE,
-                                "/api/fraud-reports/**"
-                        ).hasAnyRole("ADMIN", "CITIZEN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/fraud-reports/**")
+                        .hasRole("ADMIN")
 
                         // ANALYST
                         .requestMatchers("/api/analyst-reports/**")
                         .hasAnyRole("ADMIN", "ANALYST", "OBSERVER")
 
+                        // EVERYTHING ELSE
                         .anyRequest().authenticated()
                 )
 
+                // GOOGLE LOGIN SUCCESS
                 .oauth2Login(oauth2 ->
-                        oauth2.successHandler(googleOAuth2SuccessHandler))
+                        oauth2.successHandler(googleOAuth2SuccessHandler)
+                )
 
+                // JWT FILTER
                 .addFilterBefore(
                         jwtAuthenticationFilter,
                         UsernamePasswordAuthenticationFilter.class
@@ -162,16 +156,17 @@ public class SecurityConfig {
 
     @Bean
     public AuthenticationManager authenticationManager(
-            AuthenticationConfiguration config) throws Exception {
+            AuthenticationConfiguration config
+    ) throws Exception {
         return config.getAuthenticationManager();
     }
 
+    // KEEP ONLY THIS CORS BEAN
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
 
         CorsConfiguration config = new CorsConfiguration();
 
-        // FIXED FRONTEND ORIGINS
         config.setAllowedOrigins(List.of(
                 "http://localhost:5173",
                 "http://127.0.0.1:5173",
@@ -189,7 +184,6 @@ public class SecurityConfig {
 
         config.setAllowedHeaders(List.of("*"));
 
-        // IMPORTANT FIX
         config.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source =
