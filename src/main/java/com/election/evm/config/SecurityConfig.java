@@ -2,11 +2,11 @@ package com.election.evm.config;
 
 import com.election.evm.security.JwtAuthenticationFilter;
 import com.election.evm.security.GoogleOAuth2SuccessHandler;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -18,6 +18,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.Arrays;
 import java.util.List;
 
 @Configuration
@@ -25,6 +26,10 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final GoogleOAuth2SuccessHandler googleOAuth2SuccessHandler;
+
+    // Uses FRONTEND_URL from application.properties / Render env
+    @Value("${app.oauth2.frontend-redirect-url}")
+    private String frontendUrl;
 
     public SecurityConfig(
             JwtAuthenticationFilter jwtAuthenticationFilter,
@@ -38,18 +43,20 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
 
         http
+                // Disable CSRF for JWT APIs
                 .csrf(csrf -> csrf.disable())
 
-                // USE ONLY THIS CORS CONFIG
+                // Centralized CORS
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
 
+                // JWT = stateless
                 .sessionManagement(session ->
-                        session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
+                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
 
                 .authorizeHttpRequests(auth -> auth
 
-                        // PRE-FLIGHT REQUESTS
+                        // PRE-FLIGHT
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                         // SWAGGER
@@ -59,27 +66,25 @@ public class SecurityConfig {
                                 "/v3/api-docs/**"
                         ).permitAll()
 
-                        // PUBLIC AUTH ENDPOINTS
+                        // PUBLIC AUTH
                         .requestMatchers(
                                 HttpMethod.POST,
                                 "/api/auth/login",
-                                "/api/auth/login/",
                                 "/api/auth/register",
-                                "/api/auth/register/",
                                 "/api/auth/otp/send",
                                 "/api/auth/otp/verify",
                                 "/api/auth/refresh"
                         ).permitAll()
-
-                        // CURRENT USER
-                        .requestMatchers(HttpMethod.GET, "/api/auth/me")
-                        .authenticated()
 
                         // GOOGLE OAUTH
                         .requestMatchers(
                                 "/oauth2/**",
                                 "/login/oauth2/**"
                         ).permitAll()
+
+                        // USER PROFILE
+                        .requestMatchers(HttpMethod.GET, "/api/auth/me")
+                        .authenticated()
 
                         // ELECTION RESULTS
                         .requestMatchers(HttpMethod.GET, "/api/election-results")
@@ -88,20 +93,14 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/election-results")
                         .hasAnyRole("ADMIN", "ANALYST")
 
-                        .requestMatchers(
-                                HttpMethod.POST,
-                                "/api/election-results/bulk-upload"
-                        ).hasRole("ANALYST")
+                        .requestMatchers(HttpMethod.POST, "/api/election-results/bulk-upload")
+                        .hasRole("ANALYST")
 
-                        .requestMatchers(
-                                HttpMethod.PUT,
-                                "/api/election-results/**"
-                        ).hasAnyRole("ADMIN", "ANALYST")
+                        .requestMatchers(HttpMethod.PUT, "/api/election-results/**")
+                        .hasAnyRole("ADMIN", "ANALYST")
 
-                        .requestMatchers(
-                                HttpMethod.DELETE,
-                                "/api/election-results/**"
-                        ).hasAnyRole("ADMIN", "ANALYST")
+                        .requestMatchers(HttpMethod.DELETE, "/api/election-results/**")
+                        .hasAnyRole("ADMIN", "ANALYST")
 
                         // ADMIN
                         .requestMatchers(
@@ -114,7 +113,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/incidents/**")
                         .hasAnyRole("ADMIN", "OBSERVER")
 
-                        // FRAUD REPORTS
+                        // FRAUD
                         .requestMatchers(HttpMethod.GET, "/api/fraud-reports")
                         .hasAnyRole("ADMIN", "CITIZEN", "OBSERVER")
 
@@ -131,11 +130,14 @@ public class SecurityConfig {
                         .requestMatchers("/api/analyst-reports/**")
                         .hasAnyRole("ADMIN", "ANALYST", "OBSERVER")
 
+                        // ACTUATOR
+                        .requestMatchers("/actuator/health").permitAll()
+
                         // EVERYTHING ELSE
                         .anyRequest().authenticated()
                 )
 
-                // GOOGLE LOGIN SUCCESS
+                // GOOGLE LOGIN
                 .oauth2Login(oauth2 ->
                         oauth2.successHandler(googleOAuth2SuccessHandler)
                 )
@@ -161,15 +163,17 @@ public class SecurityConfig {
         return config.getAuthenticationManager();
     }
 
-    // KEEP ONLY THIS CORS BEAN
+    // SINGLE CORS CONFIG ONLY
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
 
         CorsConfiguration config = new CorsConfiguration();
 
-        config.setAllowedOrigins(List.of(
+        // Supports current + old Vercel + localhost
+        config.setAllowedOrigins(Arrays.asList(
                 "http://localhost:5173",
                 "http://127.0.0.1:5173",
+                frontendUrl,
                 "https://ev-mfrontend-qbd1sz7c5-peddi-yeswanths-projects.vercel.app"
         ));
 
@@ -182,7 +186,17 @@ public class SecurityConfig {
                 "OPTIONS"
         ));
 
-        config.setAllowedHeaders(List.of("*"));
+        config.setAllowedHeaders(List.of(
+                "Authorization",
+                "Content-Type",
+                "Accept",
+                "Origin",
+                "X-Requested-With"
+        ));
+
+        config.setExposedHeaders(List.of(
+                "Authorization"
+        ));
 
         config.setAllowCredentials(true);
 
